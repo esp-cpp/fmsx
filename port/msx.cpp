@@ -124,16 +124,19 @@ int ProcessEvents(int Wait)
     }
     last_x = state.x;
 
-    if (state.select)
+    // start + select together opens the emulator's pause menu (the host's
+    // cart), so neither acts on its own here then
+    const bool menu_chord = state.start && state.select;
+
+    if (state.select && !menu_chord)
     {
         InKeyboard = !InKeyboard;
         // wait no more than 500ms for the user to release the key
         wait_for_key(GamepadState::Button::SELECT, false, 500);
     }
-    else if (state.start)
+    else if (state.y)
     {
-        // I think this key could be better used for something else
-        // but for now the feedback is to keep a key for fMSX menu...
+        // Y opens fMSX's own menu; start is the game's F1 (below)
         InMenu = 2;
         return 0;
     }
@@ -148,7 +151,7 @@ int ProcessEvents(int Wait)
         // unmute audio
         box.mute(is_muted);
         // wait at least 500ms for the user to release the key
-        wait_for_key(GamepadState::Button::START, false, 500);
+        wait_for_key(GamepadState::Button::Y, false, 500);
         InMenu = 0;
     }
     else if (InMenu)
@@ -213,6 +216,8 @@ int ProcessEvents(int Wait)
             KBD_SET(KBD_SPACE);
         if (state.b)
             KBD_SET(KBD_ENTER);
+        if (state.start && !menu_chord)
+            KBD_SET(KBD_F1);
     }
     else
     {
@@ -228,6 +233,9 @@ int ProcessEvents(int Wait)
             JoyState |= JST_FIREA;
         if (state.b)
             JoyState |= JST_FIREB;
+        // start is F1: pause in Konami's games (Metal Gear's too)
+        if (state.start && !menu_chord)
+            KBD_SET(KBD_F1);
     }
 
     return 0;
