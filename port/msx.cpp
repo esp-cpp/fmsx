@@ -77,6 +77,39 @@ static const unsigned char KBDKeys[YKEYS][XKEYS] = {
     {'Z', 'X', 'C', 'V', 'B', 'N', 'M', ',', '.', '/', 0, 0},
     {'[', ']', ' ', ' ', ' ', ' ', ' ', '\\', '\'', 0, 0, 0}};
 
+// KBDKeys (EMULib Touch.c's layout) gives the non-character keys as
+// EMULib's console codes, but KBD_SET() indexes fMSX's Keys[] by its KBD_*
+// codes (0x00..0x81): CON_F1..CON_F8 (0xEE..0xF5) are past its end (and
+// wrote outside KeyState[]), CON_INSERT / CON_DELETE land on each other's
+// keys and CON_STOP on NUMPAD3. Translate them; the rest are ASCII.
+static void press_keyboard_key(unsigned char key)
+{
+    switch (key)
+    {
+    case CON_F1: case CON_F2: case CON_F3: case CON_F4: case CON_F5:
+        KBD_SET(KBD_F1 + (key - CON_F1));
+        break;
+    case CON_F6: case CON_F7: case CON_F8:
+        // the MSX's F6..F10 are shift + F1..F5
+        KBD_SET(KBD_SHIFT);
+        KBD_SET(KBD_F1 + (key - CON_F6));
+        break;
+    case CON_INSERT:
+        KBD_SET(KBD_INSERT);
+        break;
+    case CON_DELETE:
+        KBD_SET(KBD_DELETE);
+        break;
+    case CON_STOP:
+        KBD_SET(KBD_STOP);
+        break;
+    default:
+        if (key && key < 0x80)
+            KBD_SET(key);
+        break;
+    }
+}
+
 static const char *BiosFolder = "/sdcard/msx/bios/";
 // We only check for absolutely essential files to avoid slowing down boot too much!
 static const char *BiosFiles[] = {
@@ -193,7 +226,7 @@ int ProcessEvents(int Wait)
         else if (state.a)
         {
             KeyboardKey = KBDKeys[KeyboardRow][KeyboardCol];
-            KBD_SET(KeyboardKey);
+            press_keyboard_key(KeyboardKey);
         }
         else if (state.b)
         {
