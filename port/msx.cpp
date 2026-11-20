@@ -301,8 +301,6 @@ static inline void SubmitFrame(void)
     framebuffer = displayBuffer[currentBuffer];
     NormScreen->Data = framebuffer;
     XBuf = NormScreen->Data;
-
-    frame_complete = true;
 }
 
 void PutImage(void)
@@ -323,6 +321,13 @@ unsigned int Joystick(void)
 
 void Keyboard(void)
 {
+    // fMSX calls Keyboard() once per emulated frame (at line 192), drawn or
+    // not, so this is what ends a frame for run_msx_rom(): its 60 Hz cap and
+    // the frame time / fps are per MSX frame. The drawn frames (RefreshScreen,
+    // every other one with -skip 50) would let the game run at twice its
+    // speed whenever audio doesn't pace it (muted).
+    frame_complete = true;
+
     // Keyboard() is a convenient place to do our vsync stuff :)
     if (PendingLoadSTA)
     {
