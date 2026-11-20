@@ -19,6 +19,12 @@ extern "C" {
 static uint16_t* displayBuffer[2];
 static uint8_t currentBuffer = 0;
 static uint16_t* framebuffer = nullptr;
+// the last frame handed to the display: a whole one (a run now ends at line
+// 192, in the middle of drawing the next), for screenshots
+static uint16_t* shown_frame = nullptr;
+// start / select handling across polls (ProcessEvents); reset per launch
+static bool select_held = false, chord_seen = false;
+static int start_polls = 0;
 static uint16_t* audio_buffers[2];
 static uint8_t currentAudioBuffer = 0;
 static uint16_t* audio_buffer = nullptr;
@@ -158,16 +164,28 @@ int ProcessEvents(int Wait)
     last_x = state.x;
 
     // start + select together opens the emulator's pause menu (the host's
-    // cart), so neither acts on its own here then
-    const bool menu_chord = state.start && state.select;
-
-    if (state.select && !menu_chord)
+    // cart), so neither acts on its own then. A person's chord rarely lands
+    // in one poll (a frame), so: select toggles the on-screen keyboard when
+    // it is released, unless start joined it meanwhile, and start is the
+    // MSX's F1 only once it has been held for a few polls without select.
+    if (state.start && state.select)
+        chord_seen = true;
+    start_polls = state.start ? start_polls + 1 : 0;
+    const bool start_key = start_polls >= 3 && !chord_seen;
+    if (state.select)
     {
-        InKeyboard = !InKeyboard;
-        // wait no more than 500ms for the user to release the key
-        wait_for_key(GamepadState::Button::SELECT, false, 500);
+        select_held = true;
     }
-    else if (state.y)
+    else if (select_held)
+    {
+        select_held = false;
+        if (!chord_seen)
+            InKeyboard = !InKeyboard;
+    }
+    if (!state.start && !state.select)
+        chord_seen = false;
+
+    if (state.y)
     {
         // Y opens fMSX's own menu; start is the game's F1 (below)
         InMenu = 2;
@@ -249,7 +267,7 @@ int ProcessEvents(int Wait)
             KBD_SET(KBD_SPACE);
         if (state.b)
             KBD_SET(KBD_ENTER);
-        if (state.start && !menu_chord)
+        if (start_key)
             KBD_SET(KBD_F1);
     }
     else
@@ -267,7 +285,7 @@ int ProcessEvents(int Wait)
         if (state.b)
             JoyState |= JST_FIREB;
         // start is F1: pause in Konami's games (Metal Gear's too)
-        if (state.start && !menu_chord)
+        if (start_key)
             KBD_SET(KBD_F1);
     }
 
@@ -328,6 +346,7 @@ static inline void SubmitFrame(void)
 {
     static auto& box = BoxEmu::get();
     box.push_frame(framebuffer);
+    shown_frame = framebuffer;
 
     // swap buffers
     currentBuffer = currentBuffer ? 0 : 1;
@@ -515,6 +534,9 @@ void init_msx(const std::string& rom_filename, uint8_t *romdata, size_t rom_data
   displayBuffer[1] = (uint16_t*)BoxEmu::get().frame_buffer1();
   currentBuffer = 0;
   framebuffer = displayBuffer[0];
+  shown_frame = nullptr;
+  select_held = chord_seen = false;
+  start_polls = 0;
 
   audio_buffers[0] = (uint16_t*)shared_malloc(AUDIO_BUFFER_LENGTH * sizeof(int16_t));
   audio_buffers[1] = (uint16_t*)shared_malloc(AUDIO_BUFFER_LENGTH * sizeof(int16_t));
@@ -584,7 +606,8 @@ void save_msx(std::string_view save_path) {
 }
 
 std::span<uint8_t> get_msx_video_buffer() {
-  return std::span<uint8_t>(reinterpret_cast<uint8_t*>(framebuffer), MSX_SCREEN_WIDTH * MSX_SCREEN_HEIGHT * 2);
+  uint16_t *frame = shown_frame ? shown_frame : framebuffer;
+  return std::span<uint8_t>(reinterpret_cast<uint8_t*>(frame), MSX_SCREEN_WIDTH * MSX_SCREEN_HEIGHT * 2);
 }
 
 void deinit_msx() {
